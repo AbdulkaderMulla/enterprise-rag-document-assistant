@@ -1,0 +1,10 @@
+Enterprise Knowledge Base Demo
+
+This sample document demonstrates the Enterprise RAG Document Intelligent Assistant.
+
+The system supports document ingestion, text chunking, semantic embedding,
+vector search, and grounded answer generation.
+
+Supported document types include PDF, TXT, and DOCX.
+
+The application exposes a FastAPI backend and a Streamlit interface.
