@@ -4,12 +4,14 @@ import tempfile
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app.config import settings
 from app.rag_pipeline import (
     SUPPORTED_EXTENSIONS,
     answer_question,
     build_vector_store,
     chunk_documents,
     load_file,
+    load_vector_store,
     save_vector_store,
 )
 
@@ -25,16 +27,25 @@ class QuestionRequest(BaseModel):
     question: str
 
 
+@app.on_event("startup")
+def restore_vector_store():
+    global VECTOR_STORE
+    index_file = Path(settings.vector_store_dir) / "index.faiss"
+    if index_file.exists():
+        VECTOR_STORE = load_vector_store()
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "vector_store_ready": VECTOR_STORE is not None}
 
 
 @app.post("/documents")
 async def upload_document(file: UploadFile = File(...)):
     global VECTOR_STORE
 
-    ext = Path(file.filename or "").suffix.lower()
+    filename = Path(file.filename or "document").name
+    ext = Path(filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
@@ -48,6 +59,9 @@ async def upload_document(file: UploadFile = File(...)):
 
     try:
         documents = load_file(temp_path)
+        for document in documents:
+            document.metadata["source"] = filename
+
         chunks = chunk_documents(documents)
         if not chunks:
             raise HTTPException(status_code=400, detail="No text found in document.")
@@ -61,7 +75,7 @@ async def upload_document(file: UploadFile = File(...)):
 
         return {
             "message": "Document indexed successfully",
-            "filename": file.filename,
+            "filename": filename,
             "chunks_indexed": len(chunks),
         }
     finally:
@@ -70,7 +84,8 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.post("/ask")
 def ask(request: QuestionRequest):
-    global VECTOR_STORE
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     if VECTOR_STORE is None:
         raise HTTPException(
